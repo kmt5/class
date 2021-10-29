@@ -190,7 +190,24 @@ int payMoney(int ws, int *price, int *pay)
         finish(ws);
         return 0;
     }
-    coin[2] = '\0';
+
+    int err = 1;
+    for (int i = 0; i < cc; i++)
+    {
+        if (iscntrl(coin[i]))
+        {
+            coin[i] = '\0';
+            printf("%d\n", i);
+            err = 0;
+        }
+    }
+    if (err == 1)
+    {
+        sprintf(message, "入力文字数が多すぎます.\nもう一度やり直してください.\n");
+        write(ws, message, strlen(message));
+        finish(ws);
+        return 0;
+    }
 
     if (strcmp(coin, "x") == 0)
     {
