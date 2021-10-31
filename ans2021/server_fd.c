@@ -22,7 +22,7 @@ enum
     MAXNCLIENTS = 3,
 };
 
-int clients[MAXNCLIENTS];
+int clients[MAXNCLIENTS+4];
 int nclients = 0;
 
 void deleteClient(int ws)
@@ -75,7 +75,7 @@ void showItems(int ws, FILE *fp, char **item_arr, int *price_arr)
     {
         fprintf(fp, "%s(%d)", item_arr[i], price_arr[i]);
     }
-    fprintf(fp, "\n\n購入商品を入力してください:\n");
+    fprintf(fp, "\n\n購入商品を入力してください:");
 }
 
 //購入商品検索
@@ -127,11 +127,12 @@ int getItemName(int ws, FILE *fp, char **item_arr, int *price_arr, int *stock, i
     {
         if (strcmp(item, item_arr[i]) == 0)
         {
+
             if (stock[i] != 0)
             {
                 buy_item[ws] = i;
 
-                fprintf(fp, "%sの値段は%d円です\n\n投入金額(0/%d):\n", item, price_arr[i], price_arr[i]);
+                fprintf(fp, "%sの値段は%d円です\n\n投入金額(0/%d):", item, price_arr[i], price_arr[i]);
                 stock[i]--;
 
                 return price_arr[i];
@@ -219,11 +220,11 @@ int main(void)
     int change = 0;
     char item[10];
 
-    int state[MAXNCLIENTS];
-    int buy_item[MAXNCLIENTS];
-    int price[MAXNCLIENTS];
-    int pay[MAXNCLIENTS];
-    FILE *fp[MAXNCLIENTS];
+    int state[MAXNCLIENTS+4];
+    int buy_item[MAXNCLIENTS+4];
+    int price[MAXNCLIENTS+4];
+    int pay[MAXNCLIENTS+4];
+    FILE *fp[MAXNCLIENTS+4];
 
     /*ソケット通信用*/ //ws
     int s, soval;
@@ -311,26 +312,23 @@ int main(void)
                 continue;
                 fprintf(stderr, "Connection established.\n");
             }
-
-            //ノンブロッキング
+                        //ノンブロッキング
             int val;
             val = fcntl(ws, F_GETFL);
             fcntl(ws, F_SETFL, val | O_NONBLOCK);
-            //setlinebuf(fp[ws]);
-
             //標準入出力
             if ((fp[ws] = fdopen(ws, "r+")) == NULL)
             { /* read/write */
                 perror("fdopen");
                 exit(1);
             }
+            //setlinebuf(fp[ws]);
             setvbuf(fp[ws], NULL, _IONBF, MSG_SIZE);
 
             fprintf(stderr, "nclients:%d, MAXNCLIENTS:%d\n", nclients, MAXNCLIENTS);
-
             if (nclients >= MAXNCLIENTS)
             {
-                fprintf(fp[ws], "\nSorry, It's full of customers now.\n\n");
+                fprintf(fp[ws], "Sorry, It's full of customers now.\n");
                 shutdown(ws, SHUT_RDWR);
                 close(ws);
                 fprintf(stderr, "Refused a new connection.\n");
@@ -351,25 +349,24 @@ int main(void)
         {
             if (FD_ISSET(clients[i], &readfds))
             {
-                fprintf(stderr, "state[%d]:%d\n", clients[i], state[clients[i]]);
+                //fprintf(stderr, "state[%d]:%d\n", clients[i], state[clients[i]]);
                 if (state[clients[i]] == 0)
                 {
                     //fprintf(stderr, "ws:%d,client:%d, i:%d(%d).\n", ws, clients[i], i, nclients);
-                    int j;
-                    j = getItemName(clients[i], fp[clients[i]], item_arr, price_arr, stock, buy_item);
-                    //fprintf(stderr, "%d(%d).\n", j, clients[i]);
-                    if (j == 1)
+                    int buy_price;
+                    buy_price = getItemName(clients[i], fp[clients[i]], item_arr, price_arr, stock, buy_item);
+                    //fprintf(stderr, "%d(%d).\n", buy_rice, clients[i]);
+                    if (buy_price == 1)
                     {
                         showItems(clients[i], fp[clients[i]], item_arr, price_arr);
                         break;
                     }
-                    else if (j != 0)
+                    else if (buy_price != 0)
                     {
-                        fprintf(stderr, "%d(%d).\n", j, clients[i]);
                         state[clients[i]] = 1; //状態保存
-                        price[clients[i]] = j; //購入商品の値段
+                        price[clients[i]] = buy_price; //購入商品の値段
                         pay[clients[i]] = 0;   //初期化
-                        fprintf(stderr, "state:%d(%d)\n", state[clients[i]], clients[i]);
+                        //fprintf(stderr, "state:%d(%d)\n", state[clients[i]], clients[i]);
                     }
                 }
                 else if (state[clients[i]] == 1)
@@ -383,7 +380,7 @@ int main(void)
                         if (pay[clients[i]] < price[clients[i]])
                         {
                             //fprintf(stderr, "%d,%d(%d).\n", pay[clients[i]], price[clients[i]], clients[i]);
-                            fprintf(fp[clients[i]], "投入金額(%d/%d):\n", pay[clients[i]], price_arr[i]);
+                            fprintf(fp[clients[i]], "投入金額(%d/%d):", pay[clients[i]], price_arr[i]);
                         }
                         else
                         {
