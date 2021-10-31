@@ -15,25 +15,17 @@
 #define COIN_LENGTH 5
 #define MSG_SIZE 1024
 
-//int checkInputMoney(char *input);
-
 enum
 {
     SERVER_PORT = 39999,
-    NQUEUESIZE = 5,
-    MAXNCLIENTS = 10,
+    NQUEUESIZE = 3,
+    MAXNCLIENTS = 3,
 };
 
 int clients[MAXNCLIENTS];
 int nclients = 0;
 
-void sorry(int ws, FILE *fp)
-{
-    char *message = "Sorry, It's full of customers now.\n";
-    fputs(message, fp);
-}
-
-void delete_client(int ws)
+void deleteClient(int ws)
 {
     int i;
     for (i = 0; i < nclients; i++)
@@ -52,7 +44,7 @@ void finish(int ws, FILE *fp)
 {
     shutdown(ws, SHUT_RDWR);
     close(ws);
-    delete_client(ws);
+    deleteClient(ws);
     fprintf(stderr, "Connection closed on descriptor %d.\n", ws);
     fclose(fp);
 }
@@ -78,7 +70,6 @@ int checkInputMoney(char *input)
 void showItems(int ws, FILE *fp, char **item_arr, int *price_arr)
 {
     int i;
-    char message[1024];
     //fprintf(stderr, "fp:%p\n", fp);
     for (i = 0; i < ITEM_LENGTH; i++)
     {
@@ -93,7 +84,6 @@ int getItemName(int ws, FILE *fp, char **item_arr, int *price_arr, int *stock, i
     int i;
     char cc;
     char item[10];
-    char message[1024];
 
     //fprintf(stderr, "ws:%d\n", ws);
     if (cc = fgets(item, sizeof(item), fp) == NULL)
@@ -104,22 +94,23 @@ int getItemName(int ws, FILE *fp, char **item_arr, int *price_arr, int *stock, i
         return 0;
     }
 
-    int err = 0;
+    int err = 1;
     for (int i = 0; i < strlen(item); i++)
     {
         if (iscntrl(item[i]))
         {
             item[i] = '\0';
             printf("%d\n", i);
-            err = 1;
+            err = 0;
         }
     }
-    if (err == 0)
+    if (err == 1)
     {
         fprintf(fp, "入力文字数が多すぎます.\n正しく商品名を打ってください.\n");
         //finish(ws, fp);
-        while(fgets(item, sizeof(item), fp) != NULL);
-        
+        while (fgets(item, sizeof(item), fp) != NULL)
+            ;
+
         return 1;
     }
 
@@ -136,11 +127,20 @@ int getItemName(int ws, FILE *fp, char **item_arr, int *price_arr, int *stock, i
     {
         if (strcmp(item, item_arr[i]) == 0)
         {
-            buy_item[ws] = i;
+            if (stock[i] != 0)
+            {
+                buy_item[ws] = i;
 
-            fprintf(fp, "%sの値段は%d円です\n\n投入金額(0/%d):\n", item, price_arr[i], price_arr[i]);
+                fprintf(fp, "%sの値段は%d円です\n\n投入金額(0/%d):\n", item, price_arr[i], price_arr[i]);
+                stock[i]--;
 
-            return price_arr[i];
+                return price_arr[i];
+            }
+            else
+            {
+                fprintf(fp, "その商品は売り切れています\n\n");
+                return 1;
+            }
         }
         else if (i == ITEM_LENGTH - 1)
         {
@@ -154,9 +154,7 @@ int getItemName(int ws, FILE *fp, char **item_arr, int *price_arr, int *stock, i
 int payMoney(int ws, FILE *fp, int *price, int *pay)
 {
     int i, cc;
-    char c;
     char coin[10];
-    char message[1024];
     int check;
     int money;
     money = pay[ws];
@@ -181,8 +179,11 @@ int payMoney(int ws, FILE *fp, int *price, int *pay)
     }
     if (err == 1)
     {
-        fprintf(fp, "入力文字数が多すぎます.\nもう一度やり直してください.\n");
-        finish(ws, fp);
+        fprintf(fp, "入力文字数が多すぎます.\n正しく商品名を打ってください.\n");
+        //finish(ws, fp);
+        while (fgets(coin, sizeof(coin), fp) != NULL)
+            ;
+
         return 1;
     }
 
@@ -197,7 +198,6 @@ int payMoney(int ws, FILE *fp, int *price, int *pay)
     if (check == 0)
     {
         money += atoi(coin); //入金加算
-        //memset(&coin, 0, sizeof(coin));
         return money;
     }
     else
@@ -217,14 +217,10 @@ int main(void)
 
     int i;
     int change = 0;
-    int msg_len = 0;
+    char item[10];
+
     int state[MAXNCLIENTS];
     int buy_item[MAXNCLIENTS];
-
-    char message[MSG_SIZE];
-    char item[10];
-    char buf[20];
-
     int price[MAXNCLIENTS];
     int pay[MAXNCLIENTS];
     FILE *fp[MAXNCLIENTS];
@@ -315,9 +311,26 @@ int main(void)
                 continue;
                 fprintf(stderr, "Connection established.\n");
             }
+
+            //ノンブロッキング
+            int val;
+            val = fcntl(ws, F_GETFL);
+            fcntl(ws, F_SETFL, val | O_NONBLOCK);
+            //setlinebuf(fp[ws]);
+
+            //標準入出力
+            if ((fp[ws] = fdopen(ws, "r+")) == NULL)
+            { /* read/write */
+                perror("fdopen");
+                exit(1);
+            }
+            setvbuf(fp[ws], NULL, _IONBF, MSG_SIZE);
+
+            fprintf(stderr, "nclients:%d, MAXNCLIENTS:%d\n", nclients, MAXNCLIENTS);
+
             if (nclients >= MAXNCLIENTS)
             {
-                sorry(ws, fp[clients[i]]);
+                fprintf(fp[ws], "\nSorry, It's full of customers now.\n\n");
                 shutdown(ws, SHUT_RDWR);
                 close(ws);
                 fprintf(stderr, "Refused a new connection.\n");
@@ -328,19 +341,6 @@ int main(void)
                 nclients++;
                 fprintf(stderr, "Accepted a connection on descriptor %d.\n", ws);
             }
-
-            //ノンブロッキング
-            int val;
-            val = fcntl(ws, F_GETFL);
-            fcntl(ws, F_SETFL, val | O_NONBLOCK);
-
-            if ((fp[ws] = fdopen(ws, "r+")) == NULL)
-            { /* read/write */
-                perror("fdopen");
-                exit(1);
-            }
-            //setlinebuf(fp[ws]);
-            setvbuf(fp[ws], NULL, _IONBF, MSG_SIZE);
 
             fprintf(fp[ws], "\nいらっしゃいませ\n\n");
             showItems(ws, fp[ws], item_arr, price_arr);
@@ -354,10 +354,10 @@ int main(void)
                 fprintf(stderr, "state[%d]:%d\n", clients[i], state[clients[i]]);
                 if (state[clients[i]] == 0)
                 {
-                    fprintf(stderr, "ws:%d,client:%d, i:%d(%d).\n", ws, clients[i], i, nclients);
+                    //fprintf(stderr, "ws:%d,client:%d, i:%d(%d).\n", ws, clients[i], i, nclients);
                     int j;
                     j = getItemName(clients[i], fp[clients[i]], item_arr, price_arr, stock, buy_item);
-                    fprintf(stderr, "%d(%d).\n", j, clients[i]);
+                    //fprintf(stderr, "%d(%d).\n", j, clients[i]);
                     if (j == 1)
                     {
                         showItems(clients[i], fp[clients[i]], item_arr, price_arr);
@@ -379,17 +379,14 @@ int main(void)
                     if (input != 1)
                     {
                         pay[clients[i]] = input;
-                        fprintf(stderr, "%d,%d(%d).\n", pay[clients[i]], price[clients[i]], clients[i]);
+                        //fprintf(stderr, "%d,%d(%d).\n", pay[clients[i]], price[clients[i]], clients[i]);
                         if (pay[clients[i]] < price[clients[i]])
                         {
-                            fprintf(stderr, "%d,%d(%d).\n", pay[clients[i]], price[clients[i]], clients[i]);
+                            //fprintf(stderr, "%d,%d(%d).\n", pay[clients[i]], price[clients[i]], clients[i]);
                             fprintf(fp[clients[i]], "投入金額(%d/%d):\n", pay[clients[i]], price_arr[i]);
                         }
                         else
                         {
-                            fprintf(stderr, "Here!");
-                            state[i] = 2;
-
                             /*購入完了処理*/
                             fprintf(fp[clients[i]], "\n投入金額合計：%d円\n\n%sのお渡しです！", pay[clients[i]], item_arr[buy_item[clients[i]]]);
                             if (pay[clients[i]] > price[clients[i]])
